@@ -1,0 +1,52 @@
+name: Deploy reviewed public release
+on:
+  workflow_dispatch:
+    inputs:
+      expected_commit:
+        description: Exact deployment repository commit reviewed for this release
+        type: string
+        required: true
+      expected_manifest_sha256:
+        description: Locally reviewed allowlist digest
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout exact public repository commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Verify reviewed commit; download and verify approved release
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+        run: |
+          test "$GITHUB_SHA" = "$EXPECTED_COMMIT"
+          curl --fail --location --proto '=https' --proto-redir '=https' --retry 2 --output reviewed-site.zip https://github.com/D990905/D990905.github.io/releases/download/site-9561e68-20261010/public-site-candidate.zip
+          python3 .release/verify-release-zip.py --archive reviewed-site.zip --manifest .release/manifest.json --output _site --expected-manifest-sha256 "$EXPECTED_MANIFEST_SHA256"
+      - name: Upload verified Pages artifact only
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: _site
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy verified artifact to this repository's Pages
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e
